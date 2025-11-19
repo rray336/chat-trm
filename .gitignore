@@ -37,7 +37,9 @@ env/
 .ipynb_checkpoints
 
 # Data files
-data/
+data/shakespeare_char/
+data/chat_synthetic/*.jsonl
+src/data/test_conversations.jsonl
 *.bin
 *.pkl
 
@@ -56,6 +58,9 @@ logs/
 
 # Memory bank / planning
 memory-bank/
+
+# Reference files
+reference-files-dont-edit/
 
 # IDE settings
 .claude/

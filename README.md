@@ -2,6 +2,8 @@
 
 A recursive reasoning language model that applies transformer blocks iteratively to refine predictions, achieving parameter efficiency through weight reuse rather than layer stacking.
 
+> **Note**: Basic conversational chat capability has been added via supervised fine-tuning! The model can now respond to simple greetings, questions, and follow conversation structure. This is a proof-of-concept with a small synthetic dataset - see the [Chat Fine-Tuning](#2-chat-fine-tuning-new) section below for details.
+
 ## What This Project Does
 
 Chat-TRM is a text completion model inspired by the Tiny Recursive Model (TRM) architecture, adapted for autoregressive language generation. Instead of stacking many transformer layers, the model uses **recursive reasoning**: a small number of transformer blocks are applied multiple times, allowing the model to iteratively refine its predictions.
@@ -67,6 +69,8 @@ python src/data/shakespeare.py
 
 ### Training
 
+#### 1. Shakespeare Text Completion
+
 **Quick test** (~5 minutes on CPU):
 ```bash
 python src/training/train.py configs/shakespeare_char.py \
@@ -85,9 +89,54 @@ python src/training/train.py configs/shakespeare_char.py
 - Loss should decrease from ~4.2 to ~1.5-2.0
 - Checkpoint saved to `out-shakespeare-char/ckpt.pt`
 
+#### 2. Chat Fine-Tuning (NEW!)
+
+After training the Shakespeare model, you can fine-tune it for conversational chat:
+
+**Generate synthetic chat dataset** (already done):
+```bash
+python data/chat_synthetic/generate.py
+```
+
+This creates 1,500 synthetic conversations (1,350 train, 150 validation) with:
+- Greetings and casual exchanges
+- Simple Q&A about the model
+- Basic math questions
+- Factual questions
+- Multi-turn conversations
+
+**Key features**:
+- Vocabulary expansion: 65 → 69 tokens (adds 4 special chat tokens)
+- Masked loss: Only trains on assistant responses, not user messages
+- Character-level tokenization preserved from Shakespeare model
+- Special tokens: `<|user_start|>`, `<|user_end|>`, `<|assistant_start|>`, `<|assistant_end|>`
+
+**Quick chat training** (~10 minutes on CPU):
+```bash
+python src/training/chat_sft.py configs/chat_sft.py --max_iters=100
+```
+
+**Full chat training** (~30-60 minutes on CPU):
+```bash
+python src/training/chat_sft.py configs/chat_sft.py
+```
+
+**Monitor progress**:
+- Initial loss: ~3.0-4.0 (higher due to new special token embeddings)
+- Final train loss: ~0.001-0.01 (model memorizes training data)
+- Final val loss: ~2.0-2.5
+- Checkpoint saved to `out-chat-sft/ckpt.pt`
+
+**Test chat interface**:
+```bash
+python test_chat.py
+```
+
+For detailed chat training guide, see [CHAT_TRAINING.md](CHAT_TRAINING.md)
+
 ### Generate Text
 
-After training completes:
+After Shakespeare training completes:
 
 ```bash
 # Generate samples
@@ -160,24 +209,38 @@ python src/training/train.py configs/shakespeare_char.py \
 chat-trm/
 ├── src/
 │   ├── model/
-│   │   ├── config.py       # Model configuration
-│   │   ├── layers.py       # RMSNorm, SwiGLU, Attention, RoPE
-│   │   └── trm.py          # Main TRM model with recursive loop
+│   │   ├── config.py           # Model configuration
+│   │   ├── layers.py           # RMSNorm, SwiGLU, Attention, RoPE
+│   │   └── trm.py              # Main TRM model with recursive loop
 │   ├── training/
-│   │   └── train.py        # Training loop (from nanoGPT)
-│   └── data/
-│       └── shakespeare.py  # Data preparation
+│   │   ├── train.py            # Shakespeare training loop
+│   │   └── chat_sft.py         # Chat fine-tuning script
+│   ├── data/
+│   │   ├── shakespeare.py      # Shakespeare data preparation
+│   │   ├── chat_tokenizer.py   # Character tokenizer with special tokens
+│   │   └── chat_dataset.py     # JSONL conversation loader
+│   └── utils/
+│       └── expand_vocab.py     # Vocabulary expansion utility
+├── data/
+│   └── chat_synthetic/
+│       ├── generate.py         # Synthetic conversation generator
+│       ├── train.jsonl         # 1,350 training conversations
+│       └── val.jsonl           # 150 validation conversations
 ├── configs/
-│   └── shakespeare_char.py # Training configuration
-├── generate.py             # Text generation script
-├── QUICKSTART.md           # Detailed guide
-└── README.md               # This file
+│   ├── shakespeare_char.py     # Shakespeare training config
+│   └── chat_sft.py             # Chat fine-tuning config
+├── generate.py                 # Shakespeare text generation
+├── test_chat.py                # Interactive chat interface
+├── QUICKSTART.md               # Detailed guide
+├── CHAT_TRAINING.md            # Chat training guide
+└── README.md                   # This file
 ```
 
 ## Model Details
 
-**Current Configuration** (Shakespeare dataset):
+### Shakespeare Text Completion Model
 - Parameters: ~3.5M (0.5M non-embedding)
+- Vocabulary: 65 tokens (character-level)
 - Hidden size: 384
 - Attention heads: 6
 - Transformer blocks: 2
@@ -185,9 +248,31 @@ chat-trm/
 - Context length: 256 tokens
 - Dataset: Shakespeare character-level (~1M training tokens)
 
+### Chat Fine-Tuned Model
+- Parameters: ~3.5M (same as Shakespeare, vocabulary expansion only)
+- Vocabulary: **69 tokens** (65 characters + 4 special tokens)
+- Special tokens: `<|user_start|>` (65), `<|user_end|>` (66), `<|assistant_start|>` (67), `<|assistant_end|>` (68)
+- Architecture: Identical to Shakespeare model (all weights preserved)
+- Training: Supervised fine-tuning with masked loss (only trains on assistant responses)
+- Dataset: 1,500 synthetic conversations
+  - 1,350 training examples
+  - 150 validation examples
+  - Average ~65 tokens per conversation
+  - 62.7% of tokens are assistant responses (training targets)
+
+**Vocabulary Expansion Strategy**:
+1. Load Shakespeare checkpoint (65-token vocab)
+2. Expand embedding layer from [65, 384] → [69, 384]
+3. Copy first 65 embeddings, randomly initialize new 4 tokens
+4. Expand LM head from [65, 384] → [69, 384] similarly
+5. All other weights (attention, MLP) transferred unchanged
+6. Fine-tune with lower learning rate (1e-4 vs 1e-3)
+
 **Compute Trade-off**: N recursion steps ≈ N× forward pass compute. The hypothesis is that parameter reuse through recursion is more efficient than stacking layers.
 
 ## Expected Results
+
+### Shakespeare Text Completion
 
 After 5000 iterations on Shakespeare:
 - Train loss: ~1.5-2.0 (from ~4.2)
@@ -200,6 +285,30 @@ Example generation:
 ROMEO:
 What light through yonder window breaks?
 It is the east, and Juliet is the sun.
+```
+
+### Chat Fine-Tuning
+
+After 1000 iterations on synthetic chat data:
+- Initial loss: ~3.0-4.0 (higher due to random special token embeddings)
+- Train loss: ~0.001-0.01 (model memorizes training data)
+- Val loss: ~2.0-2.5 (reasonable generalization)
+
+**What the model can do**:
+- ✅ Respond to greetings ("Hello" → "Hi there! How can I help you today?")
+- ✅ Answer simple questions from training data
+- ✅ Follow conversation structure with proper turn-taking
+- ✅ Use correct grammar and punctuation
+- ⚠️ Limited to character-level generation (less fluent than BPE models)
+- ⚠️ Heavily overfit to training templates (expected with 1,500 examples)
+
+Example chat interaction:
+```
+You: Hello!
+Assistant: Hi there! How can I help you today?
+
+You: What is three plus three?
+Assistant: Three plus three equals six.
 ```
 
 ## References
@@ -215,9 +324,16 @@ It is the east, and Juliet is the sun.
 - Author: Andrej Karpathy
 - This project uses nanoGPT's training infrastructure and data loading patterns
 
+**nanochat**:
+- Repository: Referenced for chat implementation patterns
+- Used as reference for: chat tokenizer structure, masked loss implementation, JSONL conversation format
+- Dataset is NOT from nanochat - we generate custom synthetic data to fit Shakespeare vocabulary constraints
+
 For detailed attribution, see [CITATIONS.md](CITATIONS.md)
 
 ## Troubleshooting
+
+### Shakespeare Training
 
 **Training is slow on CPU**
 - Normal! Each iteration takes 1-2 seconds
@@ -233,7 +349,27 @@ For detailed attribution, see [CITATIONS.md](CITATIONS.md)
 - Reduce `batch_size` or `hidden_size`
 - Reduce `block_size` (context length)
 
-See [QUICKSTART.md](QUICKSTART.md) for detailed troubleshooting guide.
+### Chat Training
+
+**Checkpoint not found**
+- Train Shakespeare model first: `python src/training/train.py configs/shakespeare_char.py`
+- Ensure checkpoint exists at `out-shakespeare-char/ckpt.pt`
+
+**Loss not decreasing**
+- Initial loss ~3.0-4.0 is normal (new special token embeddings)
+- Should decrease after 100-200 iterations
+- Check dataset loaded: "Training examples: 1350"
+
+**Chat responses are repetitive**
+- Expected! Model is overfit to 1,500 training examples
+- To improve: generate more diverse conversations, increase dataset size to 5K-10K
+
+**Character limitations**
+- Only digit '3' available in Shakespeare vocab
+- Numbers must be spelled out: "three", "seven", "ten"
+- This is a limitation of character-level tokenization with Shakespeare base
+
+See [QUICKSTART.md](QUICKSTART.md) and [CHAT_TRAINING.md](CHAT_TRAINING.md) for detailed troubleshooting guides.
 
 ## License
 
