@@ -1,0 +1,82 @@
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+build/
+develop-eggs/
+dist/
+downloads/
+eggs/
+.eggs/
+lib/
+lib64/
+parts/
+sdist/
+var/
+wheels/
+*.egg-info/
+.installed.cfg
+*.egg
+
+# Virtual environments
+venv/
+ENV/
+env/
+.venv
+
+# IDEs
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+
+# Jupyter Notebook
+.ipynb_checkpoints
+
+# Data files
+data/
+*.bin
+*.pkl
+
+# Model checkpoints
+out/
+out-*/
+checkpoints/
+*.pt
+*.pth
+*.ckpt
+
+# Logs
+*.log
+wandb/
+logs/
+
+# Memory bank / planning
+memory-bank/
+
+# IDE settings
+.claude/
+
+# Sensitive files
+.env
+.env.*
+*.key
+*.pem
+*.p12
+*.pfx
+*secret*
+*password*
+*credential*
+config.local.*
+settings.local.*
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Temporary files
+*.tmp
+*.bak
